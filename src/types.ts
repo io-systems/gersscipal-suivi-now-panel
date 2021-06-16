@@ -20,6 +20,6 @@ export interface Setup {
 }
 
 export interface ProductionOptions {
-  autoRefresh: boolean;
+  dashboardTitle: string;
   refreshSeconds: number;
 }

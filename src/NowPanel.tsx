@@ -116,6 +116,9 @@ export const NowPanel: React.FC<Props> = ({ data, options, timeRange, width, hei
     return (
       <div className={cx(styles.content)}>
         <span className={cx(styles.childField, styles.dateField)}>{now.toLocaleDateString()}</span>
+        {options.dashboardTitle && options.dashboardTitle.length > 0 && (
+          <span className={cx(styles.childField, styles.titleField)}>{options.dashboardTitle}</span>
+        )}
         <span className={cx(styles.childField, styles.timeField)}>
           {[
             now.getHours().toString().length < 2 ? `0${now.getHours().toString()}` : now.getHours().toString(),
@@ -166,6 +169,13 @@ const getStyles = stylesFactory((theme: GrafanaTheme) => {
       color: light-grey;
       font-size: 6em;
       text-align: right;
+    `,
+    titleField: css`
+      color: light-grey;
+      font-size: 4em;
+      text-align: center;
+      padding: 0;
+      margin: 0;
     `,
   };
 });

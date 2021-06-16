@@ -1,8 +1,8 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { dateTime, GrafanaTheme, PanelProps, TimeRange } from '@grafana/data';
 import { BackendSrv, getBackendSrv } from '@grafana/runtime';
 import { css, cx } from 'emotion';
-import { IconButton, stylesFactory, useTheme } from '@grafana/ui';
+import { stylesFactory, useTheme } from '@grafana/ui';
 
 import { DayValues, GspTimeRange, ProductionOptions, Setup } from 'types';
 
@@ -60,7 +60,7 @@ export const NowPanel: React.FC<Props> = ({ data, options, timeRange, width, hei
     to.setHours(parsedPeriodTo[0], parsedPeriodTo[1], 0, 0);
     if (dayIsToday && now.getTime() < from.getTime()) {
       to.setHours(from.getHours(), from.getMinutes(), from.getSeconds(), 0);
-    }else if (dayIsToday && now.getTime() < to.getTime()) {
+    } else if (dayIsToday && now.getTime() < to.getTime()) {
       to.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), 0);
     }
     return { from: dateTime(from), to: dateTime(to), raw: { from: from.toLocaleString(), to: to.toLocaleString() } };
@@ -77,16 +77,16 @@ export const NowPanel: React.FC<Props> = ({ data, options, timeRange, width, hei
   const getConfig = (): Promise<Setup> => {
     return new Promise(async (resolve, reject) => {
       const url = [window.location.protocol, '//', window.location.hostname, ':', '3000'].join('');
-      try{
+      try {
         const data = await GspLoopback.get(`${url}/app-setup/opening-time-setup`);
         const setupError =
           !data || !data.value || !data.value.week || !Array.isArray(data.value.week) || data.value.week.length <= 0;
         validSetup.current = !setupError;
         return resolve(data);
-      }catch(e){
+      } catch (e) {
         return reject(e);
       }
-    })
+    });
   };
   const updateTodayTimePeriod = async () => {
     const ot = await getConfig();
@@ -114,23 +114,12 @@ export const NowPanel: React.FC<Props> = ({ data, options, timeRange, width, hei
   const getClock = () => {
     const now = new Date();
     return (
-      <div
-        className={cx(
-          styles.content,
-        )}>
-        <span
-          className={cx(
-            styles.childField,
-            styles.dateField,
-          )}>{now.toLocaleDateString()}</span>
-        <span
-          className={cx(
-            styles.childField,
-            styles.timeField,
-          )}>{now.toLocaleTimeString()}</span>
+      <div className={cx(styles.content)}>
+        <span className={cx(styles.childField, styles.dateField)}>{now.toLocaleDateString()}</span>
+        <span className={cx(styles.childField, styles.timeField)}>{now.toLocaleTimeString()}</span>
       </div>
     );
-  }
+  };
 
   return (
     <div

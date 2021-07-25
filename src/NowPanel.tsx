@@ -1,19 +1,18 @@
 import React, { useEffect, useRef } from 'react';
 import { dateTime, GrafanaTheme, PanelProps, TimeRange } from '@grafana/data';
-import { BackendSrv, getBackendSrv } from '@grafana/runtime';
 import { css, cx } from 'emotion';
 import { stylesFactory, useTheme } from '@grafana/ui';
 
-import { DayValues, GspTimeRange, ProductionOptions, Setup } from 'types';
+import { GspTimeRange, ProductionOptions } from 'types';
 
 interface Props extends PanelProps<ProductionOptions> {}
 
 export const NowPanel: React.FC<Props> = ({ data, options, timeRange, width, height, onChangeTimeRange }: Props) => {
   const lastTimeRange = useRef<string>();
   const refreshInterval = useRef<NodeJS.Timeout>();
+  const shiftSchedule = useRef<GspTimeRange[]>();
   const theme = useTheme();
   const styles = getStyles(theme);
-  const GspLoopback: BackendSrv = getBackendSrv();
   let validSetup = useRef(false);
 
   const getMinutesFromGspPeriod = (period: string): number => {
@@ -21,26 +20,29 @@ export const NowPanel: React.FC<Props> = ({ data, options, timeRange, width, hei
     return Number(tmp[0]) * 60 + Number(tmp[1]);
   };
 
-  const parseSetupPeriods = (day: Date, setup: DayValues): TimeRange => {
+  const parseSetupPeriods = (): TimeRange => {
     let parsedPeriodFrom = [0, 0]; // [ heures, minutes ]
     let parsedPeriodTo = [0, 0]; // [ heures, minutes ]
 
     // pas de période de production définie, abandon
-    if (setup.periods.length <= 0) {
+    if (!shiftSchedule.current || shiftSchedule.current.length < 0) {
       return timeRange;
     }
 
-    switch (setup.periods.length) {
+    switch (shiftSchedule.current.length) {
+      case 0:
+        return timeRange;
+
       case 1:
         // on ne traite qu'avec un seul index
-        parsedPeriodFrom = setup.periods[0].start.split(':').map((t: string) => Number(t));
-        parsedPeriodTo = setup.periods[0].end.split(':').map((t: string) => Number(t));
+        parsedPeriodFrom = shiftSchedule.current[0].start.split(':').map((t: string) => Number(t));
+        parsedPeriodTo = shiftSchedule.current[0].end.split(':').map((t: string) => Number(t));
         break;
 
       default:
         // on réalise une copie du tableau
         const tmp: GspTimeRange[] = [];
-        for (let p of setup.periods) {
+        for (let p of shiftSchedule.current) {
           tmp.push({ ...p });
         }
         // on trie du start le plus petit a start le plus grand et on ne conserve que le premier élément
@@ -52,53 +54,21 @@ export const NowPanel: React.FC<Props> = ({ data, options, timeRange, width, hei
         parsedPeriodTo = tmp[0].end.split(':').map((t: string) => Number(t));
         break;
     }
-    const from = new Date(day);
-    const to = new Date(day);
-    const now = new Date();
-    const dayIsToday = from.toDateString() === now.toDateString();
+    const today = new Date();
+    const from = new Date(today);
+    const to = new Date(today);
     from.setHours(parsedPeriodFrom[0], parsedPeriodFrom[1], 0, 0);
     to.setHours(parsedPeriodTo[0], parsedPeriodTo[1], 0, 0);
-    if (dayIsToday && now.getTime() < from.getTime()) {
-      to.setHours(from.getHours(), from.getMinutes(), from.getSeconds(), 0);
-    } else if (dayIsToday && now.getTime() < to.getTime()) {
-      to.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), 0);
-    }
     return { from: dateTime(from), to: dateTime(to), raw: { from: from.toLocaleString(), to: to.toLocaleString() } };
   };
 
-  const setTimePeriod = (day: Date, setup: DayValues) => {
-    const { from, to } = parseSetupPeriods(day, setup);
+  const setTimePeriod = () => {
+    const { from, to } = parseSetupPeriods();
     const newTimeRange = { from: from.valueOf(), to: to.valueOf() };
     if (JSON.stringify(newTimeRange) !== lastTimeRange.current) {
       onChangeTimeRange(newTimeRange);
       lastTimeRange.current = JSON.stringify(newTimeRange);
     }
-  };
-  const getConfig = (): Promise<Setup> => {
-    return new Promise(async (resolve, reject) => {
-      const url = [window.location.protocol, '//', window.location.hostname, ':', '3000'].join('');
-      try {
-        const data = await GspLoopback.get(`${url}/app-setup/opening-time-setup`);
-        const setupError =
-          !data || !data.value || !data.value.week || !Array.isArray(data.value.week) || data.value.week.length <= 0;
-        validSetup.current = !setupError;
-        return resolve(data);
-      } catch (e) {
-        return reject(e);
-      }
-    });
-  };
-  const updateTodayTimePeriod = async () => {
-    const ot = await getConfig();
-    if (!ot || !ot.value || !ot.value.week || ot.value.week.length <= 0) {
-      return;
-    }
-    let e = new Date();
-    const weekDayIndex = ot.value.week.findIndex((day) => day.weekDay === e.getDay());
-    if (weekDayIndex < 0) {
-      return;
-    }
-    setTimePeriod(e, ot.value.week[weekDayIndex]);
   };
 
   useEffect(() => {
@@ -106,10 +76,44 @@ export const NowPanel: React.FC<Props> = ({ data, options, timeRange, width, hei
       clearInterval(refreshInterval.current);
     }
     refreshInterval.current = setInterval(() => {
-      updateTodayTimePeriod();
+      setTimePeriod();
     }, options.refreshSeconds * 1000);
-    updateTodayTimePeriod();
+    setTimePeriod();
   }, [timeRange, options.refreshSeconds]);
+
+  const getShiftSchedule = () => {
+    if (data.state !== 'Done' || data.series.length <= 0) {
+      return;
+    }
+    const shiftSched = data.series.find((serie) => serie.refId === 'shiftSchedule');
+    if (!shiftSched) {
+      return;
+    }
+    if (!shiftSched.fields || shiftSched.fields.length < 0) {
+      return;
+    }
+    let tmpStart = shiftSched.fields.filter((field) => field.name === 'start');
+    if (tmpStart.length !== 1) {
+      return;
+    }
+    let tmpEnd = shiftSched.fields.filter((field) => field.name === 'end');
+    if (tmpEnd.length !== 1) {
+      return;
+    }
+    const tmpSched = {
+      start: tmpStart[0].values.toArray(),
+      end: tmpEnd[0].values.toArray(),
+    };
+    shiftSchedule.current = tmpSched.start.map((startval, i) => ({
+      start: tmpSched.start[i],
+      end: tmpSched.end[i],
+    }));
+    validSetup.current = true;
+  };
+
+  useEffect(() => {
+    getShiftSchedule();
+  }, [data]);
 
   const getClock = () => {
     const now = new Date();

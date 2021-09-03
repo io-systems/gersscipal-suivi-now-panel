@@ -1,9 +1,10 @@
 import React, { useEffect, useRef } from 'react';
-import { dateTime, GrafanaTheme, PanelProps, TimeRange } from '@grafana/data';
+import { dateTime, GrafanaTheme, PanelProps } from '@grafana/data';
 import { css, cx } from 'emotion';
 import { stylesFactory, useTheme } from '@grafana/ui';
+import { GspTimeRange, Series } from '../../iosystems-plugin-support';
 
-import { GspTimeRange, ProductionOptions } from 'types';
+import { ProductionOptions } from 'types';
 
 interface Props extends PanelProps<ProductionOptions> {}
 
@@ -13,57 +14,18 @@ export const NowPanel: React.FC<Props> = ({ data, options, timeRange, width, hei
   const shiftSchedule = useRef<GspTimeRange[]>();
   const theme = useTheme();
   const styles = getStyles(theme);
-  let validSetup = useRef(false);
-
-  const getMinutesFromGspPeriod = (period: string): number => {
-    const tmp = period.split(':');
-    return Number(tmp[0]) * 60 + Number(tmp[1]);
-  };
-
-  const parseSetupPeriods = (): TimeRange => {
-    let parsedPeriodFrom = [0, 0]; // [ heures, minutes ]
-    let parsedPeriodTo = [0, 0]; // [ heures, minutes ]
-
-    // pas de période de production définie, abandon
-    if (!shiftSchedule.current || shiftSchedule.current.length < 0) {
-      return timeRange;
-    }
-
-    switch (shiftSchedule.current.length) {
-      case 0:
-        return timeRange;
-
-      case 1:
-        // on ne traite qu'avec un seul index
-        parsedPeriodFrom = shiftSchedule.current[0].start.split(':').map((t: string) => Number(t));
-        parsedPeriodTo = shiftSchedule.current[0].end.split(':').map((t: string) => Number(t));
-        break;
-
-      default:
-        // on réalise une copie du tableau
-        const tmp: GspTimeRange[] = [];
-        for (let p of shiftSchedule.current) {
-          tmp.push({ ...p });
-        }
-        // on trie du start le plus petit a start le plus grand et on ne conserve que le premier élément
-        tmp.sort((a, b) => getMinutesFromGspPeriod(a.start) - getMinutesFromGspPeriod(b.start));
-        parsedPeriodFrom = tmp[0].start.split(':').map((t: string) => Number(t));
-
-        // on trie du end le plus grand a end le plus petit et on ne conserve que le premier élément
-        tmp.sort((a, b) => getMinutesFromGspPeriod(b.end) - getMinutesFromGspPeriod(a.end));
-        parsedPeriodTo = tmp[0].end.split(':').map((t: string) => Number(t));
-        break;
-    }
-    const today = new Date();
-    const from = new Date(today);
-    const to = new Date(today);
-    from.setHours(parsedPeriodFrom[0], parsedPeriodFrom[1], 0, 0);
-    to.setHours(parsedPeriodTo[0], parsedPeriodTo[1], 0, 0);
-    return { from: dateTime(from), to: dateTime(to), raw: { from: from.toLocaleString(), to: to.toLocaleString() } };
-  };
+  const validSetup = useRef(false);
+  const _init = useRef(false);
+  const _series = new Series();
 
   const setTimePeriod = () => {
-    const { from, to } = parseSetupPeriods();
+    if (!shiftSchedule.current || shiftSchedule.current.length <= 0) {
+      return;
+    }
+    let { from, to } = _series.parseSetupPeriods(new Date(), shiftSchedule.current, timeRange);
+    if (new Date().getTime() < to.toDate().getTime()) {
+      to = dateTime(new Date());
+    }
     const newTimeRange = { from: from.valueOf(), to: to.valueOf() };
     if (JSON.stringify(newTimeRange) !== lastTimeRange.current) {
       onChangeTimeRange(newTimeRange);
@@ -75,11 +37,11 @@ export const NowPanel: React.FC<Props> = ({ data, options, timeRange, width, hei
     if (refreshInterval.current) {
       clearInterval(refreshInterval.current);
     }
-    refreshInterval.current = setInterval(() => {
+    refreshInterval.current = setTimeout(() => {
       setTimePeriod();
     }, options.refreshSeconds * 1000);
-    setTimePeriod();
-  }, [timeRange, options.refreshSeconds]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [options.refreshSeconds]);
 
   const getShiftSchedule = () => {
     if (data.state !== 'Done' || data.series.length <= 0) {
@@ -108,11 +70,23 @@ export const NowPanel: React.FC<Props> = ({ data, options, timeRange, width, hei
       start: tmpSched.start[i],
       end: tmpSched.end[i],
     }));
+    // setTimePeriod();
+    if (!_init.current) {
+      setTimePeriod();
+    }
+    _init.current = true;
+    if (refreshInterval.current) {
+      clearInterval(refreshInterval.current);
+    }
+    refreshInterval.current = setTimeout(() => {
+      setTimePeriod();
+    }, options.refreshSeconds * 1000);
     validSetup.current = true;
   };
 
   useEffect(() => {
     getShiftSchedule();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
   const getClock = () => {

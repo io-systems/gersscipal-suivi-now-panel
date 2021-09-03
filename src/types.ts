@@ -1,7 +1,4 @@
-export interface GspTimeRange {
-  start: string;
-  end: string;
-}
+import { GspTimeRange } from '../../iosystems-plugin-support/';
 
 export interface DayValues {
   day: string;
